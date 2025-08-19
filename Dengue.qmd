@@ -1,0 +1,15 @@
+---
+title: "Dengue"
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+```{r}
+dengue <- read_excel("/Users/instructorzamora/Documents/3_Maestria_Estadistica_UNINORTE/4_Cuarto_Semestre/Profundizacion/Dengue(2010-2020).xlsx",
+                     sheet = "Datos_2020_220")
+
+# Filtrar edades válidas
+dengue <- dengue %>% filter(EDAD >= 0, EDAD <= 120)
+```

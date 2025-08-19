@@ -1,0 +1,29 @@
+project:
+  type: book
+
+book:
+  title: "Dengue"
+  author: "Jesús David Zamora Thowinsson"
+  date: "8/15/2025"
+  chapters:
+    - index.qmd
+    - intro.qmd
+    - Eda.qmd
+    - references.qmd
+    
+bibliography: references.bib
+csl: vancouver.csl
+
+format:
+  html:
+    toc: true
+    code-fold: show
+    theme:
+      - superhero
+      - brand
+  pdf:
+    documentclass: scrreprt
+    css: styles.css
+
+editor: visual
+

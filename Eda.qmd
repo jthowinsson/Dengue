@@ -1,0 +1,362 @@
+# Análisis Explortorio de Datos
+
+```{r}
+#| label: setup
+#| echo: false
+#| message: false
+#| warning: false
+
+# Paquetes requeridos
+required <- c(
+  "tidyverse", "readxl", "janitor", "skimr", "gt",
+  "gtsummary", "naniar", "ggcorrplot", "forcats", "stringr","dplyr","tibble",
+  "kableExtra","tidyr","gt","scales","purrr","scales","htmltools","purrr","DT","reactable","naniar"
+)
+
+to_install <- setdiff(required, rownames(installed.packages()))
+if (length(to_install)) install.packages(to_install, quiet = TRUE)
+
+# Cargar
+invisible(lapply(required, library, character.only = TRUE))
+theme_set(theme_minimal(base_size = 12))
+
+```
+
+## Dataset
+
+```{r}
+#| label: Carga de Datos
+#| echo: false
+#| message: false
+#| warning: false
+# Cargar archivo usando la ruta completa
+dengue <- read_excel('/Users/instructorzamora/Documents/3_Maestria_Estadistica_UNINORTE/4_Cuarto_Semestre/Bioestadistica/SalidasR/Dengue/Dengue2/Dengue/Dengue(2010-2020).xlsx',
+                     sheet = "Datos_2020_220")
+
+# Filtrar edades válidas
+dengue <- dengue %>% filter(EDAD >= 0, EDAD <= 120)
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+# Filtrar solo datos del año 2020 y edades válidas
+dengue <- dengue %>% 
+  filter(ANO == 2020, EDAD >= 0, EDAD <= 120)
+
+# Seleccionar solo las columnas clave (resaltadas en negro)
+dengue_sel <- dengue %>% select(
+  FEC_NOT, ANO, SEMANA, EDAD, SEXO, AREA,
+  ESTRATO, TIP_CAS, CON_FIN,
+  Departamento_ocurrencia, Municipio_ocurrencia
+)
+
+```
+
+### Diccionario de Variables 
+
+```{r}
+#| label: Diccionario Variables
+#| echo: false
+#| message: false
+#| warning: false
+
+# Data base: usa 'dengue' si existe; si no, 'dengue_sel'
+df <- if (exists("dengue")) dengue else if (exists("dengue_sel")) dengue_sel else NULL
+stopifnot("No encuentro `dengue` ni `dengue_sel`." = !is.null(df))
+
+# === 12 variables solicitadas (se toman las primeras 12 de tu lista) ===
+solicitadas <- c(
+  "FEC_NOT","SEMANA","EDAD","SEXO","COD_DPTO_O","AREA",
+  "TIP_SS","ESTRATO","FEC_CON","INI_SIN","PAC_HOS","FEC_HOS"
+)
+
+# --- Mapeo robusto a los nombres reales del data frame ---
+names_df    <- names(df)
+names_clean <- janitor::make_clean_names(names_df)
+targets_clean <- janitor::make_clean_names(solicitadas)
+
+idx <- match(targets_clean, names_clean)
+map_sel <- tibble(Solicitada = solicitadas,
+                  Variable   = ifelse(is.na(idx), NA_character_, names_df[idx]))
+
+vars_final <- map_sel$Variable[!is.na(map_sel$Variable)]
+
+# Subconjunto en el orden solicitado
+df_sel <- dplyr::select(df, dplyr::all_of(vars_final))
+n <- nrow(df_sel)
+
+# --- Diccionario para las 12 variables ---
+dicc <- tibble(Variable = names(df_sel)) |>
+  mutate(
+    Etiqueta  = str_to_sentence(str_replace_all(Variable, "_", " ")),
+    Tipo      = vapply(df_sel, function(x) class(x)[1], character(1)),
+    Faltantes = vapply(df_sel, function(x) sum(is.na(x)), integer(1)),
+    `% NA`    = if (n > 0) 100 * Faltantes / n else NA_real_,
+    `Únicos`  = vapply(df_sel, function(x) dplyr::n_distinct(x, na.rm = TRUE), integer(1)),
+    Ejemplo   = map_chr(df_sel, function(x){
+      x <- x[!is.na(x)]
+      if (!length(x)) "(sin datos)"
+      else str_trunc(paste(unique(as.character(x))[1:min(3, length(unique(x)))], collapse = ", "), 60)
+    }),
+    .orden = match(janitor::make_clean_names(Variable), targets_clean)
+  ) |>
+  arrange(.orden) |>
+  select(-.orden)
+
+# Paleta para % NA
+pal <- col_numeric(c("#f7fbff","#c6dbef","#6baed6","#3182bd","#08519c"),
+                   range(dicc$`% NA`, na.rm = TRUE))
+
+tab <- gt(dicc) |>
+  # títulos
+  tab_header(
+    title    = gt::md("**Variables de interés**"),
+    subtitle = gt::md(paste0("Observaciones: **", n, "**"))
+  ) |>
+  # encabezados breves
+  cols_label(
+    Variable  = "Variable",
+    Etiqueta  = "Etiqueta",
+    Tipo      = "Tipo",
+    Faltantes = "Falt.",
+    `Únicos`  = "Ún.",
+    `% NA`    = "%NA",
+    Ejemplo   = "Ejemplo"
+  ) |>
+  # formatos numéricos
+  fmt_number(columns = c("Faltantes","Únicos"), decimals = 0, use_seps = TRUE) |>
+  fmt_number(columns = "% NA", decimals = 1) |>
+  # color para %NA (opcional)
+  data_color(columns = "% NA",
+             colors = scales::col_numeric(
+               c("#f0f4ff","#c8d9ff","#8fb1ff","#5f8bfd","#2f6af4"),
+               domain = range(dicc$`% NA`, na.rm = TRUE))) |>
+  # alineaciones
+  cols_align("right", columns = c("Faltantes","% NA","Únicos")) |>
+  # --- aquí compactamos de verdad ---
+  cols_width(
+    Variable  ~ px(140),
+    Etiqueta  ~ px(150),
+    Tipo      ~ px(90),
+    Faltantes ~ px(80),
+    `% NA`    ~ px(60),
+    `Únicos`  ~ px(70),
+    Ejemplo   ~ px(220)   # texto envuelto
+  ) |>
+  # envuelve el texto de "Ejemplo" para que no se haga ancho
+  tab_style(
+    style = cell_text(whitespace = "normal"),
+    locations = cells_body(columns = "Ejemplo")
+  ) |>
+  # estilo compacto
+  opt_row_striping() |>
+  tab_options(
+    table.font.size           = px(11),
+    heading.title.font.size   = px(14),
+    heading.subtitle.font.size= px(11),
+    data_row.padding          = px(2),
+    column_labels.padding     = px(2),
+    table.width               = px(820)  # ancho total más contenido
+  )
+tab
+```
+
+### Datos Faltantes
+
+```{r}
+#| label: faltantes_freq_pct_filtro
+#| echo: false
+#| message: false
+#| warning: false
+
+if (!requireNamespace("DT", quietly = TRUE)) stop("Instala 'DT': install.packages('DT')")
+library(dplyr); library(DT); library(htmltools)
+# Base
+df <- if (exists("dengue")) dengue else if (exists("dengue_sel")) dengue_sel else NULL
+stopifnot("No encuentro `dengue` ni `dengue_sel`." = !is.null(df))
+n <- nrow(df)
+na_tbl <- tibble::tibble(
+  Variable  = names(df),
+  Faltantes = vapply(df, function(x) sum(is.na(x)), integer(1))
+) |>
+  mutate(`% NA` = if (n > 0) 100 * Faltantes / n else NA_real_) |>
+  arrange(desc(Faltantes))
+# Estilo: fondo blanco, tipografía 12px, columnas compactas
+css <- tags$style(HTML("
+#naDT, #naDT * {
+  font-family: var(--bs-body-font-family, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif) !important;
+  font-size: 12px !important; line-height: 1.25 !important; color:#111 !important;
+}
+#naDT .dataTables_wrapper, #naDT table.dataTable, #naDT .dataTables_info, #naDT .dataTables_paginate { background:#fff !important; }
+#naDT thead th { background:#f8f9fa !important; color:#111 !important; font-weight:600 !important; padding:3px 6px !important; }
+#naDT tbody td { background:#fff !important; padding:2px 6px !important; }
+#naDT tbody tr:nth-child(odd) td { background:#fafafa !important; }
+#naDT table.dataTable { width:auto !important; }
+#na_container { max-width: 620px; }  /* ancho total compacto */
+#sel_excel_na { font-size:12px; padding:2px 6px; border:1px solid #cbd5e1; background:#fff; color:#111; }
+"))
+tabla <- datatable(
+  na_tbl,
+  elementId = "naDT",
+  rownames  = FALSE,
+  filter    = "none",
+  options   = list(
+    searching    = FALSE,
+    pageLength   = 12,          # muestra 12 por página -> “Showing 1 to 12 of 72 entries”
+    lengthChange = FALSE,
+    autoWidth    = FALSE,
+    order        = list(list(1, "desc")),   # por Faltantes
+    dom          = "tip",       # tabla + info + paginación (mantiene el “Showing ... entries”)
+    columnDefs   = list(
+      list(className = "dt-right", targets = 1:2),
+      list(width = "220px", targets = 0),
+      list(width = "100px", targets = 1),
+      list(width = "70px",  targets = 2)
+    ),
+    initComplete = JS("
+      function(settings){
+        var api = this.api();
+        var col = api.column(0);                    // columna 'Variable'
+        var head = $(col.header());
+        head.empty();
+        var wrap = $('<div style=\"display:flex;align-items:center;gap:6px;white-space:nowrap;\"></div>');
+        wrap.append('<span style=\"font-weight:600;\">Variable</span>');
+        var sel = $('<select id=\"sel_excel_na\"><option value=\"\">(Todos)</option></select>');
+        col.data().unique().sort().each(function(d){ sel.append($('<option/>').val(d).text(d)); });
+        sel.on('change', function(){
+          var v = $(this).val();
+          var rex = v ? '^' + $.fn.dataTable.util.escapeRegex(v) + '$' : '';
+          col.search(rex, true, false).draw();
+        });
+        wrap.append(sel);
+        head.append(wrap);
+      }
+    ")
+  ),
+  class = "stripe hover compact"
+)
+# Formato numérico
+tabla <- DT::formatCurrency(tabla, columns = 2, currency = "", interval = 3, mark = ",", digits = 0)
+tabla <- DT::formatRound(tabla,    columns = 3, digits = 1)
+# Render
+htmltools::div(id = "na_container", css, tabla)
+```
+
+### Datos Faltantes
+
+```{r}
+#| label: faltantes_por_variable_fig
+#| echo: false
+#| message: false
+#| warning: false
+#| fig-cap: "Valores faltantes por variable (n y %), ordenado de mayor a menor"
+#| fig-width: 8
+#| fig-height: 6
+
+library(dplyr); library(forcats); library(ggplot2); library(scales); library(stringr)
+
+# Data frame base
+df <- if (exists("dengue_sel")) dengue_sel else if (exists("dengue")) dengue else stop("No encuentro `dengue_sel` ni `dengue`.")
+
+# Parámetros
+top_n  <- 20   # ajusta cuántas variables mostrar (para evitar sobrecarga visual)
+umbral <- 5    # línea de referencia en %
+
+# Resumen de faltantes
+n_obs <- nrow(df)
+na_tbl <- tibble(
+  variable  = names(df),
+  faltantes = vapply(df, function(x) sum(is.na(x)), integer(1))
+) |>
+  mutate(
+    pct = if (n_obs > 0) 100 * faltantes / n_obs else NA_real_,
+    variable_label = str_to_sentence(str_replace_all(variable, "_", " "))
+  ) |>
+  arrange(desc(pct))
+
+na_top <- na_tbl |> slice_max(order_by = pct, n = min(top_n, nrow(na_tbl)), with_ties = FALSE)
+
+pct_global <- 100 * sum(is.na(df)) / (n_obs * ncol(df))
+max_pct <- max(na_top$pct, na.rm = TRUE)
+
+ggplot(na_top, aes(x = pct, y = fct_reorder(variable_label, pct), fill = pct)) +
+  geom_col(width = 0.72) +
+  # Etiqueta con TOTAL y %
+  geom_text(
+    aes(label = paste0(comma(faltantes), " (", sprintf("%.1f%%", pct), ")")),
+    hjust = -0.10, size = 3.2
+  ) +
+  # Línea de referencia (umbral)
+  geom_vline(xintercept = umbral, linetype = "dashed", linewidth = 0.4) +
+  scale_x_continuous(
+    name = "% de faltantes",
+    limits = c(0, max_pct * 1.18 + 0.1),
+    expand = c(0, 0),
+    labels = label_number(accuracy = 0.1, suffix = " %")
+  ) +
+  scale_y_discrete(name = NULL) +
+  scale_fill_gradient(low = "#dbeafe", high = "#1d4ed8", guide = "none") +
+  labs(
+    title    = "Valores faltantes por variable",
+    subtitle = sprintf("Faltante global: %.2f%% · Observaciones: %s · Variables: %s",
+                       pct_global, prettyNum(n_obs, big.mark = ","), ncol(df)),
+    caption  = sprintf("Las etiquetas muestran total (n) y porcentaje. Umbral punteado: %d%%.", umbral)
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.background   = element_rect(fill = "white", color = NA),
+    panel.background  = element_rect(fill = "white", color = NA),
+    panel.grid.minor  = element_blank(),
+    plot.title.position = "plot",
+    plot.caption.position = "plot",
+    plot.caption      = element_text(size = 9, colour = "gray30")
+  ) +
+  coord_cartesian(clip = "off")
+```
+```{r}
+#| label: faltantes_por_variable_tabla
+#| echo: false
+#| message: false
+#| warning: false
+
+library(gt)
+
+tabla_top <- na_tbl |>
+  select(Variable = variable, `Faltantes (n)` = faltantes, `% NA` = pct) |>
+  slice_max(order_by = `% NA`, n = min(20, nrow(na_tbl)), with_ties = FALSE)
+
+pal <- scales::col_numeric(
+  palette = c("#f7fbff", "#cfe7ff", "#6aa5ff", "#1f6feb"),
+  domain  = range(tabla_top$`% NA`, na.rm = TRUE)
+)
+
+gt(tabla_top) |>
+  fmt_number(columns = c(`Faltantes (n)`, `% NA`), decimals = 1, use_seps = TRUE) |>
+  fmt_number(columns = `Faltantes (n)`, decimals = 0, use_seps = TRUE) |>
+  data_color(columns = `% NA`, colors = pal) |>
+  tab_header(
+    title = md("**Faltantes por variable (Top)**"),
+    subtitle = md("Totales (n) y porcentajes sobre N observaciones")
+  ) |>
+  cols_width(
+    Variable ~ px(290),
+    `Faltantes (n)` ~ px(120),
+    `% NA` ~ px(90)
+  ) |>
+  cols_align("center", columns = c(`Faltantes (n)`, `% NA`)) |>
+  opt_row_striping() |>
+  tab_options(
+  table.font.size = px(12),          # Tamaño de fuente del contenido de la tabla
+  heading.title.font.size = px(16),  # Tamaño de fuente del título (si lo hay)
+  heading.subtitle.font.size = px(12), # Tamaño de fuente del subtítulo (si lo hay)
+  data_row.padding = px(4),          # Espacio interno (padding) en cada fila
+  table.width = px(750)              # Ancho total de la tabla en píxeles
+)
+
+```
+
+
+### Distribución de 
