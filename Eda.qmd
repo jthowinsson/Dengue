@@ -55,7 +55,7 @@ dengue_sel <- dengue %>% select(
 
 ```
 
-### Diccionario de Variables 
+### Diccionario de Variables
 
 ```{r}
 #| label: Diccionario Variables
@@ -316,6 +316,7 @@ ggplot(na_top, aes(x = pct, y = fct_reorder(variable_label, pct), fill = pct)) +
   ) +
   coord_cartesian(clip = "off")
 ```
+
 ```{r}
 #| label: faltantes_por_variable_tabla
 #| echo: false
@@ -358,5 +359,4 @@ gt(tabla_top) |>
 
 ```
 
-
-### Distribución de 
+### Distribución de
